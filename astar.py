@@ -8,7 +8,7 @@ pygame.init()
 # =========================================================
 #                SCALE-BASED SIZE SETTINGS
 # =========================================================
-SCALE = 0.8  # (e.g. 1.0, 0.8, 0.6)
+SCALE = 0.8  # <-- change this (e.g. 1.0, 0.8, 0.6)
 
 BASE_GRID_WIDTH = 800
 
@@ -27,8 +27,8 @@ BASE_BTN_GAP = 8
 BASE_BTN_RADIUS = 8
 BASE_BTN_BORDER = 2
 
-BASE_TEXT_GAP = 8   # gap between text block and buttons
-STATUS_LINE_COUNT = 4  # how many lines we reserve for status text
+BASE_TEXT_GAP = 8
+STATUS_LINE_COUNT = 4
 
 
 def S(x: int) -> int:
@@ -51,8 +51,19 @@ WHITE = (255, 255, 255)
 DARK = (30, 30, 30)
 
 # --- Fonts (scaled) ---
-FONT = pygame.font.SysFont("consolas", max(10, S(BASE_FONT_SIZE)))
-FONT_BIG = pygame.font.SysFont("consolas", max(12, S(BASE_FONT_BIG_SIZE)), bold=True)
+FONT_PATH = 'font/NotoSansMono-VariableFont_wdth,wght.ttf'
+
+def load_font(path, size):
+    try:
+        return pygame.font.Font(path, size)
+    except FileNotFoundError:
+        print(f"Font not found: {path}, falling back to system font")
+        return pygame.font.SysFont("consolas", size)
+
+FONT = pygame.font.Font(FONT_PATH, max(10, S(BASE_FONT_SIZE)))
+FONT_BIG = pygame.font.Font(FONT_PATH, max(12, S(BASE_FONT_BIG_SIZE)))
+
+FONT_BIG.set_bold(True)
 
 # --- Compute UI height dynamically so text never overlaps buttons ---
 TITLE_H = FONT_BIG.get_height()
@@ -76,19 +87,43 @@ pygame.display.set_caption("A* Pathfinding Algorithm")
 heuristic_func = None
 
 
+# ---------- Grid axis helpers (prevents last row/col stretching) ----------
+def build_axes(rows: int, grid_width: int):
+    """
+    Returns pixel boundaries for each cell.
+    axis[i] is the starting pixel of cell i, axis[i+1] is the end.
+    Length: rows+1, axis[-1] == grid_width.
+    """
+    return [round(i * grid_width / rows) for i in range(rows + 1)]
+
+
+def find_index(axis, value):
+    """
+    Find cell index such that axis[i] <= value < axis[i+1]
+    axis is sorted, len = rows+1
+    """
+    # Linear scan is fine for <= 100 rows; avoids importing bisect.
+    # You can replace with bisect for speed if needed.
+    for i in range(len(axis) - 1):
+        if axis[i] <= value < axis[i + 1]:
+            return i
+    return None
+
+
 class Node:
     """Class for individual cube on grid"""
-    def __init__(self, row, col, width, total_rows):
+    def __init__(self, row, col, x_axis, y_axis, total_rows):
         self.row = row
         self.col = col
 
-        # pygame coords are (x=col, y=row)
-        self.x = col * width
-        self.y = row * width
+        # Exact pixel bounds (prevents stretching artifacts)
+        self.x = x_axis[col]
+        self.y = y_axis[row]
+        self.w = x_axis[col + 1] - x_axis[col]
+        self.h = y_axis[row + 1] - y_axis[row]
 
         self.color = COFFEE_BROWN
         self.neighbours = []
-        self.width = width
         self.total_rows = total_rows
 
     def get_pos(self):
@@ -119,7 +154,7 @@ class Node:
         self.color = MOON_GLOW
 
     def draw(self, window):
-        pygame.draw.rect(window, self.color, (self.x, self.y, self.width, self.width))
+        pygame.draw.rect(window, self.color, (self.x, self.y, self.w, self.h))
 
     def update_neighbours(self, grid):
         self.neighbours = []
@@ -163,10 +198,13 @@ def algorithm(draw, grid, start, end, heuristic):
     open_set = PriorityQueue()
     open_set.put((0, count, start))
     came_from = {}
+
     g_score = {node: float("inf") for row in grid for node in row}
     g_score[start] = 0
+
     f_score = {node: float("inf") for row in grid for node in row}
     f_score[start] = heuristic(start.get_pos(), end.get_pos())
+
     open_set_hash = {start}
 
     start_time = timer()
@@ -206,31 +244,37 @@ def algorithm(draw, grid, start, end, heuristic):
 
 
 def make_grid(rows, grid_width):
+    x_axis = build_axes(rows, grid_width)
+    y_axis = build_axes(rows, grid_width)
+
     grid = []
-    gap = grid_width // rows
-    for i in range(rows):
+    for r in range(rows):
         grid.append([])
-        for j in range(rows):
-            node = Node(i, j, gap, rows)
-            grid[i].append(node)
-    return grid
+        for c in range(rows):
+            node = Node(r, c, x_axis, y_axis, rows)
+            grid[r].append(node)
+
+    return grid, x_axis, y_axis
 
 
-def draw_grid(window, rows, grid_width):
-    gap = grid_width // rows
-    for i in range(rows):
-        pygame.draw.line(window, GREY, (0, i * gap), (grid_width, i * gap))
-        for j in range(rows):
-            pygame.draw.line(window, GREY, (j * gap, 0), (j * gap, grid_width))
+def draw_grid(window, rows, grid_width, x_axis, y_axis):
+    # Vertical lines
+    for x in x_axis:
+        pygame.draw.line(window, GREY, (x, 0), (x, grid_width))
+    # Horizontal lines
+    for y in y_axis:
+        pygame.draw.line(window, GREY, (0, y), (grid_width, y))
 
 
-def get_clicked_pos(pos, rows, grid_width):
+def get_clicked_pos(pos, rows, grid_width, x_axis, y_axis):
     x, y = pos
-    if y >= grid_width:  # click in UI bar
+    if y >= grid_width:
         return None
-    gap = grid_width // rows
-    row = y // gap
-    col = x // gap
+
+    col = find_index(x_axis, x)
+    row = find_index(y_axis, y)
+    if row is None or col is None:
+        return None
     return row, col
 
 
@@ -268,7 +312,7 @@ def draw_ui_bar(window, status_lines, buttons):
     title = FONT_BIG.render("A* Pathfinding Visualiser", True, WHITE)
     window.blit(title, (mx, ui_top + my))
 
-    # Text block (above buttons)
+    # Text block
     text_top = ui_top + my + TITLE_H + my
     y = text_top
     for line in status_lines[:STATUS_LINE_COUNT]:
@@ -283,15 +327,13 @@ def draw_ui_bar(window, status_lines, buttons):
         b.draw(window, enabled=enabled)
 
 
-def draw_all(window, grid, rows, grid_width, status_lines, buttons):
-    # grid area
+def draw_all(window, grid, rows, grid_width, status_lines, buttons, x_axis, y_axis):
     window.fill(COFFEE_BROWN, rect=pygame.Rect(0, 0, grid_width, grid_width))
     for row in grid:
         for node in row:
             node.draw(window)
-    draw_grid(window, rows, grid_width)
+    draw_grid(window, rows, grid_width, x_axis, y_axis)
 
-    # UI
     draw_ui_bar(window, status_lines, buttons)
     pygame.display.update()
 
@@ -299,17 +341,16 @@ def draw_all(window, grid, rows, grid_width, status_lines, buttons):
 def main():
     global heuristic_func
 
-    ROWS = 40 # FIX: user needs option for diff size grids
-    grid = make_grid(ROWS, GRID_WIDTH)
+    ROWS = 45
+    grid, x_axis, y_axis = make_grid(ROWS, GRID_WIDTH)
 
     start = None
     end = None
 
-    state = "CHOOSE_HEURISTIC"  # CHOOSE_HEURISTIC -> EDITING -> RUNNING -> DONE
+    state = "CHOOSE_HEURISTIC"
     last_result = None
     status_message = "Choose a heuristic to begin."
 
-    # UI callbacks
     def set_manhattan():
         nonlocal state, status_message
         globals()["heuristic_func"] = manhattan
@@ -323,11 +364,11 @@ def main():
         status_message = "Euclidean selected. Click to place Start/End, drag to add obstacles."
 
     def clear_grid():
-        nonlocal grid, start, end, state, last_result, status_message
+        nonlocal grid, x_axis, y_axis, start, end, state, last_result, status_message
         start = None
         end = None
         last_result = None
-        grid = make_grid(ROWS, GRID_WIDTH)
+        grid, x_axis, y_axis = make_grid(ROWS, GRID_WIDTH)
         state = "CHOOSE_HEURISTIC"
         status_message = "Grid cleared. Choose a heuristic."
 
@@ -335,6 +376,7 @@ def main():
         nonlocal state, last_result, status_message
         if not (start and end and globals()["heuristic_func"]):
             return
+
         for row in grid:
             for node in row:
                 node.update_neighbours(grid)
@@ -342,7 +384,7 @@ def main():
         state = "RUNNING"
         status_message = "Running A*..."
         found, info = algorithm(
-            lambda: draw_all(WINDOW, grid, ROWS, GRID_WIDTH, status_lines(), buttons_with_enabled()),
+            lambda: draw_all(WINDOW, grid, ROWS, GRID_WIDTH, status_lines(), buttons_with_enabled(), x_axis, y_axis),
             grid, start, end, globals()["heuristic_func"]
         )
         if found:
@@ -353,7 +395,6 @@ def main():
             status_message = "Done. No path found."
             state = "DONE"
 
-    # Buttons (x positions fixed; y is anchored in draw_ui_bar)
     mx = S(BASE_MARGIN_X)
     gap = S(BASE_BTN_GAP)
 
@@ -401,16 +442,14 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
 
-            # button clicks
             for btn, enabled in buttons_with_enabled():
                 btn.handle_event(event, enabled=enabled)
 
-            # grid interactions
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
                     mouse_down_left = True
                 elif event.button == 3:
-                    pos = get_clicked_pos(event.pos, ROWS, GRID_WIDTH)
+                    pos = get_clicked_pos(event.pos, ROWS, GRID_WIDTH, x_axis, y_axis)
                     if pos is not None and state in ("EDITING", "DONE"):
                         r, c = pos
                         node = grid[r][c]
@@ -424,17 +463,15 @@ def main():
                 if event.button == 1:
                     mouse_down_left = False
 
-            # optional keyboard shortcuts
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN:
                     run_astar()
                 if event.key == pygame.K_c:
                     clear_grid()
 
-        # left drag/click on grid
         if state in ("EDITING", "DONE") and mouse_down_left:
             mpos = pygame.mouse.get_pos()
-            pos = get_clicked_pos(mpos, ROWS, GRID_WIDTH)
+            pos = get_clicked_pos(mpos, ROWS, GRID_WIDTH, x_axis, y_axis)
             if pos is not None:
                 r, c = pos
                 node = grid[r][c]
@@ -448,7 +485,7 @@ def main():
                 elif node != start and node != end:
                     node.make_obstacle()
 
-        draw_all(WINDOW, grid, ROWS, GRID_WIDTH, status_lines(), buttons_with_enabled())
+        draw_all(WINDOW, grid, ROWS, GRID_WIDTH, status_lines(), buttons_with_enabled(), x_axis, y_axis)
 
     pygame.quit()
 
