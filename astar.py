@@ -17,17 +17,25 @@ BASE_GRID_WIDTH = 800
 BASE_FONT_SIZE = 18
 BASE_FONT_BIG_SIZE = 24
 
-BASE_BTN_H = 36
+BASE_BTN_H = 28
 BASE_BTN_W1 = 150
 BASE_BTN_W2 = 150
 BASE_BTN_W3 = 120
 BASE_BTN_W4 = 120
 
 BASE_MARGIN_X = 12
-BASE_MARGIN_Y = 10
-BASE_BTN_GAP = 8
-BASE_BTN_RADIUS = 8
+BASE_MARGIN_Y = 12
+BASE_BTN_GAP = 10
+BASE_BTN_RADIUS = 5
 BASE_BTN_BORDER = 2
+
+# =========================================================
+# CSS-like horizontal padding for tabs
+# =========================================================
+# These values reduce the empty space either side of button text so
+# all tabs are more likely to fit on one row without widening the window.
+BASE_BTN_PAD_X = 10   # NEW: left/right padding inside each button (unscaled)
+BASE_BTN_MIN_W = 44   # NEW: minimum width so short labels still look like tabs
 
 BASE_TEXT_GAP = 8
 STATUS_LINE_COUNT = 4  # how many lines of status text to show in the UI bar
@@ -91,9 +99,18 @@ TAB_ALPHA_HOVER  = 255   # 1.0
 TAB_ALPHA_ACTIVE = 230   # ~0.9 * 255
 
 # Border outline for the tab look
-TAB_BORDER_RGBA = (0, 0, 0, 60)
+TAB_BORDER_RGBA = (0, 0, 0, 40)
 
 TAB_TRANSITION_SPEED = 12.0
+
+# =========================================================
+# Disabled button appearance (matches "Run" when cannot run)
+# =========================================================
+# reuse styling for "selected grid size" so it looks inactive
+# and is not clickable
+DISABLED_BG = (110, 110, 110)
+DISABLED_ALPHA = 140
+DISABLED_TEXT = UI_TEXT_COLOR
 
 # --- Fonts (scaled) ---
 FONT_PATH = 'font/NotoSansMono-VariableFont_wdth,wght.ttf'
@@ -113,6 +130,20 @@ FONT = load_font(FONT_PATH, max(10, S(BASE_FONT_SIZE)))
 FONT_BIG = load_font(FONT_PATH, max(12, S(BASE_FONT_BIG_SIZE)))
 FONT_BIG.set_bold(True)  # title
 
+
+# =========================================================
+# Compact button width helper (text + padding)
+# =========================================================
+def button_width_for(text: str) -> int:
+    """
+    Compute a compact button width based on rendered text width.
+    This reduces horizontal empty space so all tabs can fit on one row.
+    """
+    pad_x = S(BASE_BTN_PAD_X)
+    min_w = S(BASE_BTN_MIN_W)
+    return max(min_w, FONT.size(text)[0] + 2 * pad_x)
+
+
 # --- Compute UI height dynamically so text never overlaps buttons ---
 TITLE_H = FONT_BIG.get_height()  # title pixel height
 LINE_H = FONT.get_height()       # normal line pixel height
@@ -129,6 +160,7 @@ UI_HEIGHT = (
 )
 
 # Window size = grid area (square) + UI bar underneath
+# Window width stays equal to GRID_WIDTH (no empty space beside the grid).
 WIDTH = GRID_WIDTH
 HEIGHT = GRID_WIDTH + UI_HEIGHT
 
@@ -418,8 +450,12 @@ class Button:
     A tab-like button:
     - Has hovered and active states
     - Smoothly transitions background and opacity over time (dt-based)
+
+    CHANGE: "enabled=False" is now used for TWO cases:
+      1) normal disabled buttons (e.g. Run when cannot run)
+      2) the selected grid size button (so it looks inactive AND is not clickable)
     """
-    def __init__(self, rect, text, on_click):
+    def __init__(self, rect, text, on_click, active_style=True):
         self.rect = pygame.Rect(rect)  # clickable rectangle
         self.text = text               # button label
         self.on_click = on_click       # callback when clicked
@@ -428,13 +464,16 @@ class Button:
         self.hovered = False
         self.active = False
 
+        # If False, the "active" style is never shown
+        self.active_style = bool(active_style)
+
         # Current visual state for smooth transitions
         self._alpha = TAB_ALPHA_NORMAL
         self._bg = TAB_BG_NORMAL
 
     def set_active(self, active: bool):
-        """Set active tab state (selected heuristic)."""
-        self.active = active
+        """Set active tab state (used for heuristic selection and tracking grid selection)."""
+        self.active = bool(active)
 
     def update(self, dt: float, mouse_pos):
         """
@@ -443,8 +482,11 @@ class Button:
         """
         self.hovered = self.rect.collidepoint(mouse_pos)
 
-        # Decide target colours/alpha based on state
-        if self.active:
+        # Decide target colours/alpha based on visual state.
+        # If active_style is False, the button never shows "active" styling.
+        visually_active = self.active and self.active_style
+
+        if visually_active:
             target_bg = TAB_BG_ACTIVE
             target_alpha = TAB_ALPHA_ACTIVE
         else:
@@ -463,15 +505,16 @@ class Button:
         """
         radius = S(BASE_BTN_RADIUS)
 
-        # Choose styling based on enabled/active/hovered state
+        # Disabled styling (used for Run when cannot run and selected grid size button)
         if not enabled:
-            bg = (110, 110, 110)
-            alpha = 140
-            text_col = UI_TEXT_COLOR
+            bg = DISABLED_BG
+            alpha = DISABLED_ALPHA
+            text_col = DISABLED_TEXT
         else:
             bg = self._bg
             alpha = self._alpha
-            if self.active:
+            visually_active = self.active and self.active_style
+            if visually_active:
                 text_col = TAB_TEXT_ACTIVE_HOVER if self.hovered else TAB_TEXT_ACTIVE
             else:
                 text_col = TAB_TEXT_NORMAL
@@ -553,11 +596,16 @@ def draw_all(window, grid, rows, grid_width, status_lines, buttons, x_axis, y_ax
 def main():
     global heuristic_func
 
-    # Number of rows/cols in the grid
-    ROWS = 45
+    # =========================================================
+    # Grid size presets (shown as extra tabs in CHOOSE_HEURISTIC)
+    # =========================================================
+    GRID_SIZE_OPTIONS = (30, 45, 60)  # <-- preset options
 
-    # Build initial grid
-    grid, x_axis, y_axis = make_grid(ROWS, GRID_WIDTH)
+    # Selected grid size (default matches your previous constant)
+    rows_selected = 45
+
+    # Build initial grid (uses selected grid size)
+    grid, x_axis, y_axis = make_grid(rows_selected, GRID_WIDTH)
 
     # Start and end nodes (chosen by user)
     start = None
@@ -590,6 +638,36 @@ def main():
         b1.set_active(False)
         b2.set_active(True)
 
+    # =========================================================
+    # Grid size button callbacks
+    # =========================================================
+    def set_grid_size(n: int):
+        """
+        Rebuild the grid at a new resolution (rows x rows).
+        This is only enabled while choosing a heuristic, so users
+        can decide the granularity before editing/running A*.
+        """
+        nonlocal grid, x_axis, y_axis, start, end, state, status_message, rows_selected
+
+        # Store the user's selection so status + Clear keep the same size
+        rows_selected = int(n)
+
+        # Reset any placed nodes because indices/pixels change with new size
+        start = None
+        end = None
+
+        # Rebuild grid + axes using the selected size
+        grid, x_axis, y_axis = make_grid(rows_selected, GRID_WIDTH)
+
+        # Keep the user in CHOOSE_HEURISTIC (size is chosen alongside heuristic)
+        state = "CHOOSE_HEURISTIC"
+        status_message = f"Grid size set to {rows_selected}×{rows_selected}. Choose a heuristic."
+
+        # Track which size is selected (we will disable the selected button in buttons_with_enabled)
+        b_size_30.set_active(rows_selected == 30)
+        b_size_45.set_active(rows_selected == 45)
+        b_size_60.set_active(rows_selected == 60)
+
     def clear_grid():
         """
         Reset start/end and obstacles by rebuilding the grid.
@@ -599,13 +677,20 @@ def main():
         start = None
         end = None
 
-        grid, x_axis, y_axis = make_grid(ROWS, GRID_WIDTH)
+        # Clear keeps the currently selected grid size (rows_selected)
+        grid, x_axis, y_axis = make_grid(rows_selected, GRID_WIDTH)
+
         state = "CHOOSE_HEURISTIC"
         status_message = "Grid cleared. Choose a heuristic."
 
         # Clearing also resets the selected heuristic tab
         b1.set_active(False)
         b2.set_active(False)
+
+        # Keep selection tracking for grid size
+        b_size_30.set_active(rows_selected == 30)
+        b_size_45.set_active(rows_selected == 45)
+        b_size_60.set_active(rows_selected == 60)
 
     def run_astar():
         """
@@ -629,7 +714,7 @@ def main():
 
         # Run the algorithm, providing a draw callback so it can animate
         found, info = algorithm(
-            lambda: draw_all(WINDOW, grid, ROWS, GRID_WIDTH, status_lines(), buttons_with_enabled(), x_axis, y_axis),
+            lambda: draw_all(WINDOW, grid, rows_selected, GRID_WIDTH, status_lines(), buttons_with_enabled(), x_axis, y_axis),
             grid, start, end, globals()["heuristic_func"]
         )
 
@@ -663,16 +748,43 @@ def main():
     mx = S(BASE_MARGIN_X)
     gap = S(BASE_BTN_GAP)
 
-    w1, w2, w3, w4 = S(BASE_BTN_W1), S(BASE_BTN_W2), S(BASE_BTN_W3), S(BASE_BTN_W4)
+    # =========================================================
+    # Compact button widths based on text + padding
+    # =========================================================
+    # This reduces horizontal empty space either side of the label, so all
+    # buttons are more likely to fit on one row without widening the window.
+    w1 = button_width_for("Manhattan")
+    w2 = button_width_for("Euclidean")
+    w3 = button_width_for("Run")
+    w4 = button_width_for("Clear")
 
     x = mx
-    b1 = Button((x, 0, w1, BTN_H), "Manhattan", set_manhattan)
+    b1 = Button((x, 0, w1, BTN_H), "Manhattan", set_manhattan, active_style=True)
     x += w1 + gap
-    b2 = Button((x, 0, w2, BTN_H), "Euclidean", set_euclidean)
+    b2 = Button((x, 0, w2, BTN_H), "Euclidean", set_euclidean, active_style=True)
     x += w2 + gap
-    b3 = Button((x, 0, w3, BTN_H), "Run", run_astar)
+    b3 = Button((x, 0, w3, BTN_H), "Run", run_astar, active_style=False)
     x += w3 + gap
-    b4 = Button((x, 0, w4, BTN_H), "Clear", clear_grid)
+    b4 = Button((x, 0, w4, BTN_H), "Clear", clear_grid, active_style=False)
+    x += w4 + gap
+
+    # =========================================================
+    # Grid size tabs (same Button class / same styling)
+    # =========================================================
+    # These are only enabled during CHOOSE_HEURISTIC, just like the heuristic tabs.
+    # Labels are short to keep the button row compact at smaller SCALE values.
+    size_w = button_width_for("60")  # compact width based on text + padding
+
+    b_size_30 = Button((x, 0, size_w, BTN_H), "30", lambda: set_grid_size(30), active_style=False)
+    x += size_w + gap
+    b_size_45 = Button((x, 0, size_w, BTN_H), "45", lambda: set_grid_size(45), active_style=False)
+    x += size_w + gap
+    b_size_60 = Button((x, 0, size_w, BTN_H), "60", lambda: set_grid_size(60), active_style=False)
+
+    # Track initial selection
+    b_size_30.set_active(rows_selected == 30)
+    b_size_45.set_active(rows_selected == 45)
+    b_size_60.set_active(rows_selected == 60)
 
     def status_lines():
         """Build the text lines shown in the UI bar."""
@@ -682,7 +794,7 @@ def main():
             "None"
         )
         lines = [
-            f"Mode: {state}    Heuristic: {heuristic_name}",
+            f"Mode: {state}    Heuristic: {heuristic_name}    Grid: {rows_selected}x{rows_selected}",  # show grid size
             status_message,
             "Left-click: place Start then End. Drag: obstacles. Right-click: erase.",
         ]
@@ -697,14 +809,30 @@ def main():
         return lines
 
     def buttons_with_enabled():
-        """Return list of (button, enabled_bool) based on current state."""
+        """
+        Return list of (button, enabled_bool) based on current state.
+
+        CHANGE:
+        - Grid size buttons are enabled only during CHOOSE_HEURISTIC
+        - The CURRENTLY SELECTED grid size button is DISABLED (enabled=False)
+          so it looks greyed out and is not clickable, matching "Run" when it cannot run.
+        """
         choose = (state == "CHOOSE_HEURISTIC")
         can_run = (state in ("EDITING", "DONE")) and start and end and globals()["heuristic_func"]
+
+        # disable the selected grid size button (so it is not clickable)
+        size_30_enabled = choose and (rows_selected != 30)
+        size_45_enabled = choose and (rows_selected != 45)
+        size_60_enabled = choose and (rows_selected != 60)
+
         return [
-            (b1, choose),         # heuristic buttons only enabled when choosing
+            (b1, choose),             # heuristic buttons only enabled when choosing
             (b2, choose),
-            (b3, bool(can_run)),  # run enabled only when we can run
-            (b4, True),           # clear always enabled
+            (b3, bool(can_run)),      # run enabled only when we can run
+            (b4, True),               # clear always enabled
+            (b_size_30, size_30_enabled),  # selected size is disabled (looks inactive)
+            (b_size_45, size_45_enabled),
+            (b_size_60, size_60_enabled),
         ]
 
     running = True
@@ -735,7 +863,7 @@ def main():
                     mouse_down_left = True  # begin dragging/placing
                 elif event.button == 3:
                     # Right click erases (only in editing/done)
-                    pos = get_clicked_pos(event.pos, ROWS, GRID_WIDTH, x_axis, y_axis)
+                    pos = get_clicked_pos(event.pos, rows_selected, GRID_WIDTH, x_axis, y_axis)
                     if pos is not None and state in ("EDITING", "DONE"):
                         r, c = pos
                         node = grid[r][c]
@@ -759,7 +887,7 @@ def main():
         # While holding left mouse, place start/end/obstacles (only in editing/done)
         if state in ("EDITING", "DONE") and mouse_down_left:
             mpos = pygame.mouse.get_pos()
-            pos = get_clicked_pos(mpos, ROWS, GRID_WIDTH, x_axis, y_axis)
+            pos = get_clicked_pos(mpos, rows_selected, GRID_WIDTH, x_axis, y_axis)
             if pos is not None:
                 r, c = pos
                 node = grid[r][c]
@@ -775,7 +903,7 @@ def main():
                     node.make_obstacle()
 
         # Draw the current frame
-        draw_all(WINDOW, grid, ROWS, GRID_WIDTH, status_lines(), buttons_with_enabled(), x_axis, y_axis)
+        draw_all(WINDOW, grid, rows_selected, GRID_WIDTH, status_lines(), buttons_with_enabled(), x_axis, y_axis)
 
     pygame.quit()  # clean shutdown
 
