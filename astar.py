@@ -34,8 +34,8 @@ BASE_BTN_BORDER = 2
 # =========================================================
 # These values reduce the empty space either side of button text so
 # all tabs are more likely to fit on one row without widening the window.
-BASE_BTN_PAD_X = 10   # NEW: left/right padding inside each button (unscaled)
-BASE_BTN_MIN_W = 44   # NEW: minimum width so short labels still look like tabs
+BASE_BTN_PAD_X = 10   # left/right padding inside each button (unscaled)
+BASE_BTN_MIN_W = 44   # minimum width so short labels still look like tabs
 
 BASE_TEXT_GAP = 8
 STATUS_LINE_COUNT = 4  # how many lines of status text to show in the UI bar
@@ -66,21 +66,21 @@ DARK = (30, 30, 30)
 # These colours define the grid background, UI bar, and node states.
 
 # Grid & UI colours
-GRID_BG_COLOR   = (76, 86, 106)      # #4C566A (dark slate background)
-GRID_LINE_COLOR = (146, 154, 170)    # #929AAA (grid line colour)
+GRID_BG_COLOR = (76, 86, 106)       # #4C566A (dark slate background)
+GRID_LINE_COLOR = (146, 154, 170)   # #929AAA (grid line colour)
 
-UI_BG_COLOR     = (76, 86, 106)      # #4C566A (UI bar background)
-UI_TEXT_COLOR   = (229, 233, 240)    # #E5E9F0 (status text)
-UI_TITLE_COLOR  = (236, 239, 244)    # #ECEFF4 (title text)
+UI_BG_COLOR = (76, 86, 106)         # #4C566A (UI bar background)
+UI_TEXT_COLOR = (229, 233, 240)     # #E5E9F0 (status text)
+UI_TITLE_COLOR = (236, 239, 244)    # #ECEFF4 (title text)
 
 # Node state colours
-START_COLOR     = (163, 190, 140)    # start node
-END_COLOR       = (191, 97, 106)     # end node  (#BF616A)
-OBSTACLE_COLOR  = (146, 154, 170)    # obstacles (#929AAA)
+START_COLOR = (163, 190, 140)       # start node
+END_COLOR = (191, 97, 106)          # end node  (#BF616A)
+OBSTACLE_COLOR = (146, 154, 170)    # obstacles (#929AAA)
 
-OPEN_COLOR      = (129, 161, 193)    # nodes in open set
-CLOSED_COLOR    = (46, 52, 64)       # nodes already explored
-PATH_COLOR      = (235, 203, 139)    # final path
+OPEN_COLOR = (129, 161, 193)        # nodes in open set
+CLOSED_COLOR = (46, 52, 64)         # nodes already explored
+PATH_COLOR = (235, 203, 139)        # final path
 
 # =========================================================
 #           TAB-LIKE (CSS-STYLE) BUTTON THEME
@@ -95,7 +95,7 @@ TAB_TEXT_ACTIVE_HOVER = (229, 233, 240) # active tab hover text colour
 
 # Alpha levels approximating CSS opacity settings
 TAB_ALPHA_NORMAL = 180   # ~0.7 * 255
-TAB_ALPHA_HOVER  = 255   # 1.0
+TAB_ALPHA_HOVER = 255    # 1.0
 TAB_ALPHA_ACTIVE = 230   # ~0.9 * 255
 
 # Border outline for the tab look
@@ -106,8 +106,10 @@ TAB_TRANSITION_SPEED = 12.0
 # =========================================================
 # Disabled button appearance (matches "Run" when cannot run)
 # =========================================================
-# reuse styling for "selected grid size" so it looks inactive
-# and is not clickable
+# Reused for:
+#   - inactive Run
+#   - selected grid size tab
+#   - selected heuristic tab (NEW behaviour)
 DISABLED_BG = (110, 110, 110)
 DISABLED_ALPHA = 140
 DISABLED_TEXT = UI_TEXT_COLOR
@@ -160,7 +162,6 @@ UI_HEIGHT = (
 )
 
 # Window size = grid area (square) + UI bar underneath
-# Window width stays equal to GRID_WIDTH (no empty space beside the grid).
 WIDTH = GRID_WIDTH
 HEIGHT = GRID_WIDTH + UI_HEIGHT
 
@@ -186,7 +187,6 @@ def find_index(axis, value):
     Find index i such that axis[i] <= value < axis[i+1].
     Used to convert mouse pixels into grid row/col indices.
     """
-    # Linear scan is fine for <= ~100 rows and keeps dependencies minimal
     for i in range(len(axis) - 1):
         if axis[i] <= value < axis[i + 1]:
             return i
@@ -200,10 +200,10 @@ class Node:
         self.col = col
 
         # Pixel bounds derived from axis arrays (prevents stretching artifacts)
-        self.x = x_axis[col]                       # left pixel
-        self.y = y_axis[row]                       # top pixel
-        self.w = x_axis[col + 1] - x_axis[col]     # width in pixels
-        self.h = y_axis[row + 1] - y_axis[row]     # height in pixels
+        self.x = x_axis[col]
+        self.y = y_axis[row]
+        self.w = x_axis[col + 1] - x_axis[col]
+        self.h = y_axis[row + 1] - y_axis[row]
 
         # Visual state
         self.color = GRID_BG_COLOR
@@ -211,7 +211,6 @@ class Node:
         # Neighbours (adjacent walkable nodes)
         self.neighbours = []
 
-        # Needed for boundary checks in neighbour updates
         self.total_rows = total_rows
 
     def get_pos(self):
@@ -272,10 +271,7 @@ class Node:
             self.neighbours.append(grid[self.row][self.col + 1])
 
     def __lt__(self, other):
-        """
-        Required because PriorityQueue may compare items if priorities tie.
-        We don't want Node comparisons, so return False always.
-        """
+        # Required because PriorityQueue may compare items if priorities tie.
         return False
 
 
@@ -316,34 +312,29 @@ def algorithm(draw, grid, start, end, heuristic):
       (False, {"time": seconds, "path_len": 0}) if no path
       (False, None) if the user closed the window mid-run
     """
-    count = 0  # tie-breaker for PriorityQueue
+    count = 0
     open_set = PriorityQueue()
-    open_set.put((0, count, start))  # (f_score, tie, node)
-    came_from = {}  # path reconstruction map: node -> previous node
+    open_set.put((0, count, start))
+    came_from = {}
 
-    # Initialise scores
-    g_score = {node: float("inf") for row in grid for node in row}  # cost from start
+    g_score = {node: float("inf") for row in grid for node in row}
     g_score[start] = 0
 
-    f_score = {node: float("inf") for row in grid for node in row}  # estimated total cost
+    f_score = {node: float("inf") for row in grid for node in row}
     f_score[start] = heuristic(start.get_pos(), end.get_pos())
 
-    # Track membership of open set efficiently
     open_set_hash = {start}
 
     start_time = timer()
     while not open_set.empty():
-        # Allow quit during algorithm run
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 return False, None
 
-        # Get node with lowest f_score
         current = open_set.get()[2]
         open_set_hash.remove(current)
 
-        # Found the goal: reconstruct and return
         if current == end:
             end_time = timer()
             path_len = reconstruct_path(came_from, end, draw)
@@ -351,38 +342,30 @@ def algorithm(draw, grid, start, end, heuristic):
             end.make_end()
             return True, {"time": end_time - start_time, "path_len": path_len}
 
-        # Explore neighbours
         for neighbour in current.neighbours:
-            temp_g_score = g_score[current] + 1  # each move costs 1
+            temp_g_score = g_score[current] + 1
             if temp_g_score < g_score[neighbour]:
-                # Found a better route to neighbour
                 came_from[neighbour] = current
                 g_score[neighbour] = temp_g_score
                 f_score[neighbour] = temp_g_score + heuristic(neighbour.get_pos(), end.get_pos())
 
-                # Add neighbour to open set if not already present
                 if neighbour not in open_set_hash:
                     count += 1
                     open_set.put((f_score[neighbour], count, neighbour))
                     open_set_hash.add(neighbour)
-                    neighbour.make_open()  # colour as "open"
+                    neighbour.make_open()
 
-        # Update display
         draw()
 
-        # Mark as explored (closed) unless it's the start node
         if current != start:
             current.make_closed()
 
-    # If we exit the loop, no path exists
     end_time = timer()
     return False, {"time": end_time - start_time, "path_len": 0}
 
 
 def make_grid(rows, grid_width):
-    """
-    Create a rows x rows grid of Node objects and the axis arrays used for pixel mapping.
-    """
+    """Create a rows x rows grid of Node objects and axis arrays."""
     x_axis = build_axes(rows, grid_width)
     y_axis = build_axes(rows, grid_width)
 
@@ -390,18 +373,15 @@ def make_grid(rows, grid_width):
     for r in range(rows):
         grid.append([])
         for c in range(rows):
-            node = Node(r, c, x_axis, y_axis, rows)
-            grid[r].append(node)
+            grid[r].append(Node(r, c, x_axis, y_axis, rows))
 
     return grid, x_axis, y_axis
 
 
 def draw_grid(window, rows, grid_width, x_axis, y_axis):
     """Draw grid lines over the node rectangles."""
-    # Vertical lines
     for x in x_axis:
         pygame.draw.line(window, GRID_LINE_COLOR, (x, 0), (x, grid_width))
-    # Horizontal lines
     for y in y_axis:
         pygame.draw.line(window, GRID_LINE_COLOR, (0, y), (grid_width, y))
 
@@ -413,7 +393,7 @@ def get_clicked_pos(pos, rows, grid_width, x_axis, y_axis):
     """
     x, y = pos
     if y >= grid_width:
-        return None  # clicked below grid area (in UI)
+        return None
 
     col = find_index(x_axis, x)
     row = find_index(y_axis, y)
@@ -427,17 +407,14 @@ def get_clicked_pos(pos, rows, grid_width, x_axis, y_axis):
 # =========================================================
 
 def clamp(x, lo, hi):
-    """Clamp x into [lo, hi]."""
     return lo if x < lo else hi if x > hi else x
 
 
 def lerp(a, b, t):
-    """Linear interpolate from a to b by t (0..1)."""
     return a + (b - a) * t
 
 
 def lerp_color(c1, c2, t):
-    """Linear interpolate between two RGB colours."""
     return (
         int(lerp(c1[0], c2[0], t)),
         int(lerp(c1[1], c2[1], t)),
@@ -447,43 +424,33 @@ def lerp_color(c1, c2, t):
 
 class Button:
     """
-    A tab-like button:
-    - Has hovered and active states
-    - Smoothly transitions background and opacity over time (dt-based)
+    A tab-like button with smooth hover/active transitions.
 
-    CHANGE: "enabled=False" is now used for TWO cases:
-      1) normal disabled buttons (e.g. Run when cannot run)
-      2) the selected grid size button (so it looks inactive AND is not clickable)
+    enabled=False is used for multiple "non-clickable" states:
+      - Run when cannot run
+      - Selected grid size
+      - Selected heuristic (requested behaviour)
     """
     def __init__(self, rect, text, on_click, active_style=True):
-        self.rect = pygame.Rect(rect)  # clickable rectangle
-        self.text = text               # button label
-        self.on_click = on_click       # callback when clicked
+        self.rect = pygame.Rect(rect)
+        self.text = text
+        self.on_click = on_click
 
-        # Pseudo-class state
         self.hovered = False
         self.active = False
 
-        # If False, the "active" style is never shown
+        # If False, the "active" style is never shown (we use disabled look instead)
         self.active_style = bool(active_style)
 
-        # Current visual state for smooth transitions
         self._alpha = TAB_ALPHA_NORMAL
         self._bg = TAB_BG_NORMAL
 
     def set_active(self, active: bool):
-        """Set active tab state (used for heuristic selection and tracking grid selection)."""
         self.active = bool(active)
 
     def update(self, dt: float, mouse_pos):
-        """
-        Update hover state and animate toward target visuals.
-        dt = seconds since last frame.
-        """
         self.hovered = self.rect.collidepoint(mouse_pos)
 
-        # Decide target colours/alpha based on visual state.
-        # If active_style is False, the button never shows "active" styling.
         visually_active = self.active and self.active_style
 
         if visually_active:
@@ -493,19 +460,14 @@ class Button:
             target_bg = TAB_BG_NORMAL
             target_alpha = TAB_ALPHA_HOVER if self.hovered else TAB_ALPHA_NORMAL
 
-        # Interpolate toward targets (CSS-like transition)
         t = clamp(dt * TAB_TRANSITION_SPEED, 0.0, 1.0)
         self._alpha = int(lerp(self._alpha, target_alpha, t))
         self._bg = lerp_color(self._bg, target_bg, t)
 
     def draw(self, surf, enabled=True):
-        """
-        Draw the button.
-        If disabled, render it greyed out and ignore hover styling.
-        """
         radius = S(BASE_BTN_RADIUS)
 
-        # Disabled styling (used for Run when cannot run and selected grid size button)
+        # Disabled styling (grey bg + white text) - matches inactive Run button
         if not enabled:
             bg = DISABLED_BG
             alpha = DISABLED_ALPHA
@@ -519,25 +481,17 @@ class Button:
             else:
                 text_col = TAB_TEXT_NORMAL
 
-        # Render into a temporary surface so can apply opacity
         tmp = pygame.Surface(self.rect.size, pygame.SRCALPHA)
-
-        # Background
         pygame.draw.rect(tmp, (*bg, 255), tmp.get_rect(), border_radius=radius)
-
-        # Border outline
         pygame.draw.rect(tmp, TAB_BORDER_RGBA, tmp.get_rect(), S(1), border_radius=radius)
 
-        # Apply alpha like CSS opacity
         tmp.set_alpha(alpha)
         surf.blit(tmp, self.rect.topleft)
 
-        # Draw label centered in the button
         label = FONT.render(self.text, True, text_col)
         surf.blit(label, label.get_rect(center=self.rect.center))
 
     def handle_event(self, event, enabled=True):
-        """Trigger click callback on left mouse click if enabled."""
         if not enabled:
             return
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -547,18 +501,16 @@ class Button:
 
 def draw_ui_bar(window, status_lines, buttons):
     """Draw the UI bar (title, status lines, and buttons) under the grid."""
-    ui_top = GRID_WIDTH  # y coordinate where the UI bar starts
+    ui_top = GRID_WIDTH
     ui_rect = pygame.Rect(0, ui_top, WIDTH, UI_HEIGHT)
     pygame.draw.rect(window, UI_BG_COLOR, ui_rect)
 
     mx = S(BASE_MARGIN_X)
     my = S(BASE_MARGIN_Y)
 
-    # Title
     title = FONT_BIG.render("A* Pathfinding Visualiser", True, UI_TITLE_COLOR)
     window.blit(title, (mx, ui_top + my))
 
-    # Status text block (limited to STATUS_LINE_COUNT lines)
     text_top = ui_top + my + TITLE_H + my
     y = text_top
     for line in status_lines[:STATUS_LINE_COUNT]:
@@ -566,7 +518,6 @@ def draw_ui_bar(window, status_lines, buttons):
         window.blit(txt, (mx, y))
         y += LINE_H
 
-    # Buttons are anchored to the bottom of the UI bar
     btn_row_y = ui_top + UI_HEIGHT - my - BTN_H
     for b, enabled in buttons:
         b.rect.y = btn_row_y
@@ -575,155 +526,144 @@ def draw_ui_bar(window, status_lines, buttons):
 
 def draw_all(window, grid, rows, grid_width, status_lines, buttons, x_axis, y_axis):
     """Draw the grid, grid lines, UI bar, then flip the display."""
-    # Clear only the grid area (not the whole window)
     window.fill(GRID_BG_COLOR, rect=pygame.Rect(0, 0, grid_width, grid_width))
 
-    # Draw each node
     for row in grid:
         for node in row:
             node.draw(window)
 
-    # Draw grid lines on top
     draw_grid(window, rows, grid_width, x_axis, y_axis)
-
-    # Draw UI section
     draw_ui_bar(window, status_lines, buttons)
-
-    # Present the frame
     pygame.display.update()
 
 
 def main():
     global heuristic_func
 
-    # =========================================================
-    # Grid size presets (shown as extra tabs in CHOOSE_HEURISTIC)
-    # =========================================================
-    GRID_SIZE_OPTIONS = (30, 45, 60)  # <-- preset options
+    # Grid size options
+    GRID_SIZE_OPTIONS = (30, 45, 60)
 
-    # Selected grid size (default matches your previous constant)
     rows_selected = 45
-
-    # Build initial grid (uses selected grid size)
     grid, x_axis, y_axis = make_grid(rows_selected, GRID_WIDTH)
 
-    # Start and end nodes (chosen by user)
     start = None
     end = None
 
-    # Simple state machine for interaction flow
     state = "CHOOSE_HEURISTIC"
-    last_result = None  # persists across Clear; updates only when a run finishes
+    last_result = None
     status_message = "Choose a heuristic to begin."
 
     def set_manhattan():
-        """Select Manhattan heuristic and enable editing mode."""
+        """Select Manhattan heuristic (selected button will become disabled/grey)."""
         nonlocal state, status_message
         globals()["heuristic_func"] = manhattan
         state = "EDITING"
         status_message = "Manhattan selected. Click to place Start/End, drag to add obstacles."
-
-        # Visual tab state
         b1.set_active(True)
         b2.set_active(False)
 
     def set_euclidean():
-        """Select Euclidean heuristic and enable editing mode."""
+        """Select Euclidean heuristic (selected button will become disabled/grey)."""
         nonlocal state, status_message
         globals()["heuristic_func"] = euclidean
         state = "EDITING"
         status_message = "Euclidean selected. Click to place Start/End, drag to add obstacles."
-
-        # Visual tab state
         b1.set_active(False)
         b2.set_active(True)
 
-    # =========================================================
-    # Grid size button callbacks
-    # =========================================================
     def set_grid_size(n: int):
-        """
-        Rebuild the grid at a new resolution (rows x rows).
-        This is only enabled while choosing a heuristic, so users
-        can decide the granularity before editing/running A*.
-        """
+        """Rebuild the grid at a new resolution (only enabled in CHOOSE_HEURISTIC)."""
         nonlocal grid, x_axis, y_axis, start, end, state, status_message, rows_selected
-
-        # Store the user's selection so status + Clear keep the same size
         rows_selected = int(n)
-
-        # Reset any placed nodes because indices/pixels change with new size
         start = None
         end = None
-
-        # Rebuild grid + axes using the selected size
         grid, x_axis, y_axis = make_grid(rows_selected, GRID_WIDTH)
-
-        # Keep the user in CHOOSE_HEURISTIC (size is chosen alongside heuristic)
         state = "CHOOSE_HEURISTIC"
         status_message = f"Grid size set to {rows_selected}×{rows_selected}. Choose a heuristic."
 
-        # Track which size is selected (we will disable the selected button in buttons_with_enabled)
         b_size_30.set_active(rows_selected == 30)
         b_size_45.set_active(rows_selected == 45)
         b_size_60.set_active(rows_selected == 60)
 
     def clear_grid():
         """
-        Reset start/end and obstacles by rebuilding the grid.
-        Note: last_result is intentionally NOT cleared (only updates after a completed run).
+        Fully reset the grid (keeps last_result).
+        NEW: also resets heuristic so both heuristic buttons are enabled again.
         """
         nonlocal grid, x_axis, y_axis, start, end, state, status_message
         start = None
         end = None
-
-        # Clear keeps the currently selected grid size (rows_selected)
         grid, x_axis, y_axis = make_grid(rows_selected, GRID_WIDTH)
 
         state = "CHOOSE_HEURISTIC"
         status_message = "Grid cleared. Choose a heuristic."
 
-        # Clearing also resets the selected heuristic tab
+        globals()["heuristic_func"] = None
         b1.set_active(False)
         b2.set_active(False)
 
-        # Keep selection tracking for grid size
         b_size_30.set_active(rows_selected == 30)
         b_size_45.set_active(rows_selected == 45)
         b_size_60.set_active(rows_selected == 60)
 
+    # =========================================================
+    # NEW: clear only path/open/closed visuals before rerunning
+    # =========================================================
+    def clear_previous_run_visuals():
+        """
+        Clear ONLY the visual trail from the previous run:
+          - PATH_COLOR, OPEN_COLOR, CLOSED_COLOR -> GRID_BG_COLOR
+
+        Keeps:
+          - obstacles
+          - start
+          - end
+        """
+        nonlocal start, end
+        for row in grid:
+            for node in row:
+                if node == start:
+                    node.make_start()
+                    continue
+                if node == end:
+                    node.make_end()
+                    continue
+                if node.is_obstacle():
+                    continue
+                if node.color in (PATH_COLOR, OPEN_COLOR, CLOSED_COLOR):
+                    node.reset()
+
     def run_astar():
-        """
-        Run A* if start/end + heuristic are set.
-        Stores last_result for both success and failure.
-        """
+        """Run A* (clears previous run visuals first)."""
         nonlocal state, last_result, status_message
 
-        # Guard: must have start, end, and chosen heuristic
         if not (start and end and globals()["heuristic_func"]):
             return
 
-        # Precompute neighbour lists for all nodes
+        # NEW: clear previous path/open/closed colouring before rerun
+        clear_previous_run_visuals()
+
         for row in grid:
             for node in row:
                 node.update_neighbours(grid)
 
-        # Update UI state while running
         state = "RUNNING"
         status_message = "Running A*..."
 
-        # Run the algorithm, providing a draw callback so it can animate
         found, info = algorithm(
             lambda: draw_all(WINDOW, grid, rows_selected, GRID_WIDTH, status_lines(), buttons_with_enabled(), x_axis, y_axis),
             grid, start, end, globals()["heuristic_func"]
         )
 
-        # If the user closed the window mid-run, algorithm returns (False, None)
         if info is None:
             return
 
-        # Record result for BOTH success and failure (updates only when run finishes)
         last_result = {
+            "heuristic": (
+                "Manhattan" if globals()["heuristic_func"] == manhattan else
+                "Euclidean" if globals()["heuristic_func"] == euclidean else
+                "None"
+            ),
             "found": bool(found),
             "path_len": int(info.get("path_len", 0)),
             "time": info.get("time", None),
@@ -731,138 +671,121 @@ def main():
 
         state = "DONE"
 
-        # Format time nicely for display
         t = last_result["time"]
-        if isinstance(t, (int, float)):
-            t_str = f"{t:.4f}s"
-        else:
-            t_str = "N/A"
+        t_str = f"{t:.4f}s" if isinstance(t, (int, float)) else "N/A"
 
-        # Status message depends on success/failure
         if found:
             status_message = f"Done. Path found: {last_result['path_len']} nodes, {t_str}"
         else:
             status_message = f"Done. No path found. Time: {t_str}"
 
-    # ---- Create buttons (positioned later in draw_ui_bar) ----
+    # ---- Create buttons ----
     mx = S(BASE_MARGIN_X)
     gap = S(BASE_BTN_GAP)
 
-    # =========================================================
-    # Compact button widths based on text + padding
-    # =========================================================
-    # This reduces horizontal empty space either side of the label, so all
-    # buttons are more likely to fit on one row without widening the window.
     w1 = button_width_for("Manhattan")
     w2 = button_width_for("Euclidean")
     w3 = button_width_for("Run")
     w4 = button_width_for("Clear")
 
     x = mx
-    b1 = Button((x, 0, w1, BTN_H), "Manhattan", set_manhattan, active_style=True)
+
+    # Heuristic buttons: active_style=False so they never use TAB_BG_ACTIVE.
+    # Selected heuristic is indicated by DISABLING the selected button.
+    b1 = Button((x, 0, w1, BTN_H), "Manhattan", set_manhattan, active_style=False)
     x += w1 + gap
-    b2 = Button((x, 0, w2, BTN_H), "Euclidean", set_euclidean, active_style=True)
+    b2 = Button((x, 0, w2, BTN_H), "Euclidean", set_euclidean, active_style=False)
     x += w2 + gap
+
     b3 = Button((x, 0, w3, BTN_H), "Run", run_astar, active_style=False)
     x += w3 + gap
     b4 = Button((x, 0, w4, BTN_H), "Clear", clear_grid, active_style=False)
     x += w4 + gap
 
-    # =========================================================
-    # Grid size tabs (same Button class / same styling)
-    # =========================================================
-    # These are only enabled during CHOOSE_HEURISTIC, just like the heuristic tabs.
-    # Labels are short to keep the button row compact at smaller SCALE values.
-    size_w = button_width_for("60")  # compact width based on text + padding
-
+    size_w = button_width_for("60")
     b_size_30 = Button((x, 0, size_w, BTN_H), "30", lambda: set_grid_size(30), active_style=False)
     x += size_w + gap
     b_size_45 = Button((x, 0, size_w, BTN_H), "45", lambda: set_grid_size(45), active_style=False)
     x += size_w + gap
     b_size_60 = Button((x, 0, size_w, BTN_H), "60", lambda: set_grid_size(60), active_style=False)
 
-    # Track initial selection
     b_size_30.set_active(rows_selected == 30)
     b_size_45.set_active(rows_selected == 45)
     b_size_60.set_active(rows_selected == 60)
 
     def status_lines():
-        """Build the text lines shown in the UI bar."""
         heuristic_name = (
             "Manhattan" if globals()["heuristic_func"] == manhattan else
             "Euclidean" if globals()["heuristic_func"] == euclidean else
             "None"
         )
         lines = [
-            f"Mode: {state}    Heuristic: {heuristic_name}    Grid: {rows_selected}x{rows_selected}",  # show grid size
+            f"Mode: {state}    Heuristic: {heuristic_name}    Grid: {rows_selected}x{rows_selected}",
             status_message,
             "Left-click: place Start then End. Drag: obstacles. Right-click: erase.",
         ]
 
-        # Show last run metrics if available (persists across clears)
         if last_result:
             t = last_result["time"]
             t_str = f"{t:.4f}s" if isinstance(t, (int, float)) else "N/A"
             lines.append(
-                f"Last run: found={last_result['found']} path_len={last_result['path_len']} time={t_str}"
+                f"Last run: heuristic={last_result.get('heuristic','None')} "
+                f"found={last_result['found']} path_len={last_result['path_len']} time={t_str}"
             )
         return lines
 
     def buttons_with_enabled():
         """
-        Return list of (button, enabled_bool) based on current state.
+        Enable/disable buttons based on current state.
 
-        CHANGE:
-        - Grid size buttons are enabled only during CHOOSE_HEURISTIC
-        - The CURRENTLY SELECTED grid size button is DISABLED (enabled=False)
-          so it looks greyed out and is not clickable, matching "Run" when it cannot run.
+        Heuristic buttons:
+          - enabled if you can choose/switch heuristics
+          - BUT the selected one is disabled (grey + non-clickable)
         """
-        choose = (state == "CHOOSE_HEURISTIC")
+        choose = (state in ("CHOOSE_HEURISTIC", "EDITING", "DONE"))
+
+        # Disable the currently selected heuristic button (grey & non-clickable)
+        h_manhattan_enabled = choose and (globals()["heuristic_func"] != manhattan)
+        h_euclidean_enabled = choose and (globals()["heuristic_func"] != euclidean)
+
         can_run = (state in ("EDITING", "DONE")) and start and end and globals()["heuristic_func"]
 
-        # disable the selected grid size button (so it is not clickable)
-        size_30_enabled = choose and (rows_selected != 30)
-        size_45_enabled = choose and (rows_selected != 45)
-        size_60_enabled = choose and (rows_selected != 60)
+        size_30_enabled = (state == "CHOOSE_HEURISTIC") and (rows_selected != 30)
+        size_45_enabled = (state == "CHOOSE_HEURISTIC") and (rows_selected != 45)
+        size_60_enabled = (state == "CHOOSE_HEURISTIC") and (rows_selected != 60)
 
         return [
-            (b1, choose),             # heuristic buttons only enabled when choosing
-            (b2, choose),
-            (b3, bool(can_run)),      # run enabled only when we can run
-            (b4, True),               # clear always enabled
-            (b_size_30, size_30_enabled),  # selected size is disabled (looks inactive)
+            (b1, h_manhattan_enabled),
+            (b2, h_euclidean_enabled),
+            (b3, bool(can_run)),
+            (b4, True),
+            (b_size_30, size_30_enabled),
             (b_size_45, size_45_enabled),
             (b_size_60, size_60_enabled),
         ]
 
     running = True
-    mouse_down_left = False  # used to support "drag to paint obstacles"
-
-    clock = pygame.time.Clock()  # used for dt and to cap FPS
+    mouse_down_left = False
+    clock = pygame.time.Clock()
 
     while running:
-        # dt is used for smooth UI transitions (button fade/colour interpolation)
-        dt = clock.tick(60) / 1000.0  # seconds since last frame (60 FPS cap)
+        dt = clock.tick(60) / 1000.0
         mouse_pos = pygame.mouse.get_pos()
 
-        # Update button hover/transition states every frame
         for btn, _enabled in buttons_with_enabled():
             btn.update(dt, mouse_pos)
 
-        # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
-            # Let buttons react to clicks
             for btn, enabled in buttons_with_enabled():
                 btn.handle_event(event, enabled=enabled)
 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
-                    mouse_down_left = True  # begin dragging/placing
+                    mouse_down_left = True
                 elif event.button == 3:
-                    # Right click erases (only in editing/done)
                     pos = get_clicked_pos(event.pos, rows_selected, GRID_WIDTH, x_axis, y_axis)
                     if pos is not None and state in ("EDITING", "DONE"):
                         r, c = pos
@@ -877,14 +800,12 @@ def main():
                 if event.button == 1:
                     mouse_down_left = False
 
-            # Keyboard shortcuts
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN:
                     run_astar()
                 if event.key == pygame.K_c:
                     clear_grid()
 
-        # While holding left mouse, place start/end/obstacles (only in editing/done)
         if state in ("EDITING", "DONE") and mouse_down_left:
             mpos = pygame.mouse.get_pos()
             pos = get_clicked_pos(mpos, rows_selected, GRID_WIDTH, x_axis, y_axis)
@@ -892,7 +813,6 @@ def main():
                 r, c = pos
                 node = grid[r][c]
 
-                # First click sets start, second sets end, then drag paints obstacles
                 if not start and node != end:
                     start = node
                     start.make_start()
@@ -902,10 +822,9 @@ def main():
                 elif node != start and node != end:
                     node.make_obstacle()
 
-        # Draw the current frame
         draw_all(WINDOW, grid, rows_selected, GRID_WIDTH, status_lines(), buttons_with_enabled(), x_axis, y_axis)
 
-    pygame.quit()  # clean shutdown
+    pygame.quit()
 
 
 if __name__ == "__main__":
