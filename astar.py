@@ -765,7 +765,6 @@ def main():
         ]
 
     running = True
-    mouse_down_left = False
     clock = pygame.time.Clock()
 
     while running:
@@ -783,9 +782,7 @@ def main():
                 btn.handle_event(event, enabled=enabled)
 
             if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:
-                    mouse_down_left = True
-                elif event.button == 3:
+                if event.button == 3:
                     pos = get_clicked_pos(event.pos, rows_selected, GRID_WIDTH, x_axis, y_axis)
                     if pos is not None and state in ("EDITING", "DONE"):
                         r, c = pos
@@ -796,17 +793,13 @@ def main():
                         elif node == end:
                             end = None
 
-            if event.type == pygame.MOUSEBUTTONUP:
-                if event.button == 1:
-                    mouse_down_left = False
-
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN:
                     run_astar()
                 if event.key == pygame.K_c:
                     clear_grid()
 
-        if state in ("EDITING", "DONE") and mouse_down_left:
+        if state in ("EDITING", "DONE") and pygame.mouse.get_pressed(num_buttons=3)[0]:
             mpos = pygame.mouse.get_pos()
             pos = get_clicked_pos(mpos, rows_selected, GRID_WIDTH, x_axis, y_axis)
             if pos is not None:
